@@ -120,6 +120,34 @@ ol.farm li { margin-bottom: 10px; font-size: 13.5px; color: var(--text); }
 .note { color: var(--dim); font-size: 13px; }
 .foot { max-width: 1180px; margin: 0 auto; padding: 6px 20px 30px; color: var(--faint); font-size: 12.5px; }
 .empty { padding: 34px; text-align: center; color: var(--dim); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin-top: 14px; }
+/* The model strip on the board: the category multiples the ranking runs on, visible up front. */
+.strip { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; margin-top: 12px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; font-family: var(--mono); font-size: 12px; color: var(--dim); }
+.strip-label { font-family: var(--sans); font-size: 12.5px; color: var(--faint); }
+.strip-item.global { color: var(--glow); }
+
+/* Pins, the compare tray and the per-row buttons. */
+.tray { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--glow-dim); border-radius: 10px; font-size: 13px; }
+.tray-label { color: var(--dim); }
+.tray-item { border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; background: var(--panel); font-family: var(--mono); font-size: 12px; }
+.mini { appearance: none; background: var(--panel-2); color: var(--dim); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; font: inherit; font-size: 12px; cursor: pointer; margin-right: 6px; }
+.mini:hover { color: var(--text); }
+.mini.on { color: var(--glow); border-color: var(--glow-dim); }
+.mini:disabled { opacity: 0.45; cursor: default; }
+td.actions { white-space: nowrap; }
+tbody tr.pinned { background: rgba(245, 181, 68, 0.07); }
+.badge.pin { border-color: #4a3a17; color: var(--amber); }
+
+/* The farm plan's totals line and the compare table. */
+.plan-totals { margin: 12px 0 0; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 13px; color: var(--dim); }
+.cmp-title { margin: 4px 0 8px; font-size: 22px; }
+table.cmp { table-layout: fixed; }
+table.cmp th:first-child { width: 15%; }
+table.cmp td { overflow-wrap: anywhere; }
+table.cmp td.num { white-space: normal; }
+td.factor { color: var(--dim); font-size: 13px; }
+table th a { color: var(--glow); text-decoration: none; }
+table th a:hover { text-decoration: underline; }
+
 @media (max-width: 720px) {
   .masthead-in { flex-direction: column; }
   .stamp { text-align: left; }

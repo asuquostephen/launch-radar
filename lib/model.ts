@@ -85,9 +85,6 @@ export const MODEL_VERSION = 'launch-radar-2';
 /** How many live-token protocols the dashboard's Already trading view carries, by market cap. */
 export const LIVE_ROWS = 48;
 
-/** How many screened-out protocols the dashboard's Off the board view carries, by TVL. */
-export const EXCLUDED_ROWS = 60;
-
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
 const round4 = (n: number): number => Math.round(n * 1e4) / 1e4;
 
@@ -337,6 +334,45 @@ export function farmSteps(p: SnapshotProtocol, age: number | null): string[] {
   return steps.map((s) => (s.length > 600 ? `${s.slice(0, 596)}...` : s));
 }
 
+/** What one on-chain action costs in dollars on a chain, as a range: the numbers behind gasNote's words. */
+function gasUsdRange(chain: string): { low: number; high: number } {
+  if (chain === 'Ethereum') return { low: 4, high: 9 };
+  if (chain === 'Solana') return { low: 0.01, high: 0.1 };
+  if (chain === 'BSC') return { low: 0.1, high: 0.3 };
+  if (['Arbitrum', 'Base', 'Optimism', 'zkSync Era', 'Linea', 'Scroll', 'Mantle', 'Blast', 'Mode', 'Taiko', 'Zora'].includes(chain)) {
+    return { low: 0.1, high: 0.5 };
+  }
+  return { low: 0.5, high: 3 };
+}
+
+/** A farm plan's totals: the weeks it runs, the capital it holds, and its gas-and-fees bill. */
+export interface PlanTotals {
+  weeks: number;
+  capital_usd: number;
+  gas_low_usd: number;
+  gas_high_usd: number;
+}
+
+/**
+ * The totals of the plan farmSteps writes for the same protocol, from the same primitives: the
+ * paid actions are funding the wallet, the core action, the second action and one repeat a week
+ * (the checks and the log are free), each priced at the first chain's gas range. The capital is
+ * the position itself, stated apart — it is held, not spent.
+ */
+export function planTotals(p: SnapshotProtocol, age: number | null): PlanTotals {
+  const chain = p.chains.length > 0 ? p.chains[0]! : 'its main chain';
+  const weeks = weeksFor(age);
+  const gas = gasUsdRange(chain);
+  const actions = weeks + 3;
+  const cents = (n: number): number => Math.round(n * 100) / 100;
+  return {
+    weeks,
+    capital_usd: capitalFor(p.tvl_usd),
+    gas_low_usd: cents(actions * gas.low),
+    gas_high_usd: cents(actions * gas.high),
+  };
+}
+
 // ---------------------------------------------------------------- the board
 
 /** One row of board.json: the ranked board's row, with the score's workings attached. */
@@ -457,19 +493,33 @@ export interface ExcludedRow {
   reason: string;
 }
 
-/** The screened-out pre-token protocols, biggest first: shown, with reasons, never ranked. */
+/**
+ * The COMPLETE screened-out register, biggest first: every pre-token protocol that is not on the
+ * board, each with the rule that kept it off — the screen's reason where the screen turned it
+ * away, or the floor rule for a protocol the screen passes but that sits at or above the floor
+ * without a watchlist place (the board ranks the watchlist at the floor and new finds below it).
+ * Nothing is truncated: board rows plus this register account for the whole pre-token universe.
+ */
 export function excludedRows(snapshot: Snapshot, board: BoardRow[]): ExcludedRow[] {
   const onBoard = new Set(board.map((r) => r.slug));
+  const floorReason =
+    `at or above the $${Math.round(snapshot.floor_usd / 1_000_000)}M floor and not on the house watchlist: ` +
+    'the radar ranks the watchlist at the floor and early finds below it, so size alone earns no row';
   return snapshot.protocols
     .filter((p) => isPreToken(p) && !onBoard.has(p.slug))
-    .map((p) => ({ p, reason: screenReason(p) }))
-    .filter((x): x is { p: SnapshotProtocol; reason: string } => x.reason !== null)
+    .map((p) => ({ p, reason: screenReason(p) ?? floorReason }))
     .sort((a, b) => b.p.tvl_usd - a.p.tvl_usd || (a.p.slug < b.p.slug ? -1 : 1))
-    .slice(0, EXCLUDED_ROWS)
     .map(({ p, reason }) => ({ slug: p.slug, name: p.name, category: p.category, tvl_usd: p.tvl_usd, reason }));
 }
 
 // ---------------------------------------------------------------- the dashboard data
+
+/** One category's market multiple, as the board view's model strip prints it. */
+export interface CategoryMultiple {
+  category: string;
+  multiple: number;
+  peers: number;
+}
 
 /** Everything the dashboard renders, from the snapshot. */
 export interface RadarData {
@@ -482,11 +532,14 @@ export interface RadarData {
   global_peers: number;
   median_age_days: number;
   protocols_size: number;
+  pretoken_size: number;
   watchlist_size: number;
   board_size: number;
   early_size: number;
   live_size: number;
   excluded_size: number;
+  categories: CategoryMultiple[];
+  plan_totals: Record<string, PlanTotals>;
   rows: BoardRow[];
   live: LiveRow[];
   excluded: ExcludedRow[];
@@ -498,6 +551,15 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
   const live = liveRows(snapshot);
   const excluded = excludedRows(snapshot, board);
   const multiples = categoryMultiples(snapshot);
+  const categories: CategoryMultiple[] = [...multiples.byCategory.entries()]
+    .map(([category, m]) => ({ category, multiple: round4(m.multiple), peers: m.peers }))
+    .sort((a, b) => b.peers - a.peers || (a.category < b.category ? -1 : a.category > b.category ? 1 : 0));
+  const index = new Map(snapshot.protocols.map((p) => [p.slug, p]));
+  const plan_totals: Record<string, PlanTotals> = {};
+  for (const row of board) {
+    const p = index.get(row.slug);
+    if (p !== undefined) plan_totals[row.slug] = planTotals(p, row.age_days);
+  }
   const radar: RadarData = {
     as_of: snapshot.as_of,
     source: snapshot.source,
@@ -508,11 +570,14 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
     global_peers: multiples.global.peers,
     median_age_days: medianKnownAge(snapshot),
     protocols_size: snapshot.protocols.length,
+    pretoken_size: snapshot.protocols.filter(isPreToken).length,
     watchlist_size: snapshot.watchlist.length,
     board_size: board.length,
     early_size: board.filter((r) => !r.watchlist).length,
     live_size: live.length,
     excluded_size: excluded.length,
+    categories,
+    plan_totals,
     rows: board,
     live,
     excluded,
